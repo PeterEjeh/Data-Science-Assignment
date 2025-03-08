@@ -1,104 +1,153 @@
-#Books to Scrape 
-
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+import random
+import time
 
-# Function to scrape book details
+# ------------------ Books to Scrape ------------------
 def scrape_books(url):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    books = []
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        books = []
 
-    for book in soup.find_all('article', class_='product_pod'):
-        title = book.h3.a['title']
-        price = book.find('p', class_='price_color').text
-        stock = book.find('p', class_='instock availability').text.strip()
-        rating = book.p['class'][1]  # e.g., 'Three' for 3-star rating
-        books.append({
-            'Title': title,
-            'Price': price,
-            'Stock Status': stock,
-            'Rating': rating
-        })
-    return books
+        for book in soup.find_all('article', class_='product_pod'):
+            title = book.h3.a['title']
+            price = book.find('p', class_='price_color').text
+            stock = "In Stock" if "In stock" in book.find('p', class_='instock availability').text else "Out of Stock"
+            rating = book.p['class'][1]  # Extract rating (e.g., 'Three' for 3-star)
+            details_url = "https://books.toscrape.com/catalogue/" + book.h3.a['href']
 
-# Scrape the first 5 pages
-base_url = 'http://books.toscrape.com/catalogue/page-{}.html'
+            # Fetch additional details (description, category, and product info)
+            details_response = requests.get(details_url)
+            details_soup = BeautifulSoup(details_response.text, 'html.parser')
+
+            description_tag = details_soup.select_one("#product_description ~ p")
+            description = description_tag.text.strip() if description_tag else "No description available"
+            category = details_soup.select("ul.breadcrumb li a")[-1].text.strip()
+
+            # Extract product information table
+            product_info = {}
+            table_rows = details_soup.select("table tr")
+            for row in table_rows:
+                key = row.th.text.strip()
+                value = row.td.text.strip()
+                product_info[key] = value
+
+            books.append({
+                'Title': title,
+                'Price': price,
+                'Stock Status': stock,
+                'Rating': rating,
+                'Category': category,
+                'Description': description,
+                'UPC': product_info.get('UPC', 'N/A'),
+                'Product Type': product_info.get('Product Type', 'N/A'),
+                'Price (excl. tax)': product_info.get('Price (excl. tax)', 'N/A'),
+                'Price (incl. tax)': product_info.get('Price (incl. tax)', 'N/A'),
+                'Tax': product_info.get('Tax', 'N/A'),
+                'Availability': product_info.get('Availability', 'N/A'),
+                'Number of reviews': product_info.get('Number of reviews', 'N/A')
+            })
+
+        return books
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching books: {e}")
+        return []
+
+# Scrape first 5 pages
+base_url = 'https://books.toscrape.com/catalogue/page-{}.html'
 all_books = []
 
-for page in range(1, 6):  # First 5 pages
+for page in range(1, 6):
     url = base_url.format(page)
     all_books.extend(scrape_books(url))
+    time.sleep(1)  # Prevent overloading the server
 
-# Convert to DataFrame
+# Save to CSV
 books_df = pd.DataFrame(all_books)
-print(books_df.head())
+books_df.to_csv("books_with_product_info.csv", index=False)
+print("Books data saved to books_with_product_info.csv")
 
 
- # Quotes to Scrape 
+# ------------------ Quotes to Scrape ------------------
+def scrape_quote_authors():
+    base_url = "http://quotes.toscrape.com/page/{}/"
+    authors = {}
 
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
+    page = 1
+    while len(authors) < 10 and page <= 10:
+        try:
+            url = base_url.format(page)
+            response = requests.get(url)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
 
-# Function to scrape quotes and authors
-def scrape_quotes():
-    url = 'http://quotes.toscrape.com/'
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    authors = set()
+            for quote in soup.find_all("div", class_="quote"):
+                author_tag = quote.find("small", class_="author")
+                author_name = author_tag.text if author_tag else None
 
-    for quote in soup.find_all('div', class_='quote'):
-        author = quote.find('small', class_='author').text
-        authors.add(author)
+                author_link = quote.find("a")["href"] if quote.find("a") else None
+                if author_name and author_link and author_name not in authors:
+                    author_url = "http://quotes.toscrape.com" + author_link
+                    author_response = requests.get(author_url)
+                    author_soup = BeautifulSoup(author_response.text, "html.parser")
 
-    # Scrape author details
-    author_details = []
-    for author in list(authors)[:10]:  # Limit to 10 authors
-        author_url = f'http://quotes.toscrape.com/author/{author.replace(" ", "-")}/'
-        response = requests.get(author_url)
-        soup = BeautifulSoup(response.text, 'html.parser')
+                    name = author_soup.find("h3", class_="author-title").text.strip()
+                    dob = author_soup.find("span", class_="author-born-date").text.strip()
+                    nationality = author_soup.find("span", class_="author-born-location").text.replace("in", "").strip()
+                    description = author_soup.find("div", class_="author-description").text.strip()
 
-        name = soup.find('h3', class_='author-title').text
-        nationality = soup.find('span', class_='author-born-location').text
-        description = soup.find('div', class_='author-description').text.strip()
-        dob = soup.find('span', class_='author-born-date').text
+                    authors[name] = {
+                        "Name": name,
+                        "Date of Birth": dob,
+                        "Nationality": nationality,
+                        "Description": description
+                    }
 
-        author_details.append({
-            'Name': name,
-            'Nationality': nationality,
-            'Description': description,
-            'Date of Birth': dob
-        })
+                    if len(authors) >= 10:
+                        break
+            page += 1
+            time.sleep(1)  # Prevent rapid requests
 
-    return author_details
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching quotes: {e}")
+            break
 
-# Scrape and display
-quotes_df = pd.DataFrame(scrape_quotes())
-print(quotes_df.head())
+    return list(authors.values())
+
+# Scrape and save authors
+authors_data = scrape_quote_authors()
+authors_df = pd.DataFrame(authors_data)
+authors_df.to_csv("authors.csv", index=False)
+print("Authors data saved to authors.csv")
 
 
-# Wikipedia Scrapper
-
-import requests
-from bs4 import BeautifulSoup
-
-# Function to scrape a random Wikipedia page
+# ------------------ Wikipedia Scraper ------------------
 def scrape_random_wikipedia():
-    url = 'https://en.wikipedia.org/wiki/Special:Random'
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    try:
+        url = "https://en.wikipedia.org/wiki/Special:Random"
+        response = requests.get(url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
 
-    title = soup.find('h1', id='firstHeading').text
-    content = soup.find('div', class_='mw-parser-output').text.strip()[:500]  # First 500 characters
+        title = soup.find("h1", id="firstHeading").text.strip()
+        paragraphs = soup.select("p")
+        content = "\n".join(p.text.strip() for p in paragraphs[:3] if p.text.strip())  # First 3 meaningful paragraphs
 
-    return {
-        'Title': title,
-        'Content': content
-    }
+        return {
+            "Title": title,
+            "Content": content
+        }
 
-# Scrape and display
-random_page = scrape_random_wikipedia()
-print(f"Title: {random_page['Title']}")
-print(f"Content: {random_page['Content']}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching Wikipedia: {e}")
+        return {"Title": "Error", "Content": "Failed to fetch content"}
+
+# Scrape a random Wikipedia page
+random_wiki_page = scrape_random_wikipedia()
+print(f"\nWikipedia Page: {random_wiki_page['Title']}\n")
+print(random_wiki_page["Content"])
+
