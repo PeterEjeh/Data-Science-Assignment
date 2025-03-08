@@ -4,7 +4,7 @@ import pandas as pd
 import random
 import time
 
-# ------------------ Books to Scrape ------------------
+# ------------------ Books to Scrape -----------------
 def scrape_books(url):
     try:
         response = requests.get(url)
