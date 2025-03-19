@@ -97,3 +97,16 @@ print("Best Accuracy:", grid_search.best_score_)
 y_pred = grid_search.predict(X_test)
 print("Tuned Naive Bayes Accuracy:", accuracy_score(y_test, y_pred))
 print("Tuned Naive Bayes Classification Report:\n", classification_report(y_test, y_pred))
+
+
+import joblib
+
+# Save the Naive Bayes pipeline
+joblib.dump(nb_pipeline, 'nb_pipeline.pkl')
+
+# Load the pipeline
+loaded_pipeline = joblib.load('nb_pipeline.pkl')
+
+# Use the loaded pipeline for prediction
+y_pred = loaded_pipeline.predict(X_test)
+print("Loaded Pipeline Accuracy:", accuracy_score(y_test, y_pred))
